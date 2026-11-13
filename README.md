@@ -71,6 +71,7 @@ curl http://localhost:8010/health    # → {"ok":true}
 
 | Model | Expectation |
 |---|---|
+| DeepSeek V4.1 Flash | Good fit: supports tool calling and a very long context. Use *Native* function calling. |
 | DeepSeek-V3 / V3.1 / R1 (full, 671B, or via DeepSeek API) | Good. Handles Arabic, tool calls and the JSON spec well. |
 | DeepSeek-R1 distills 32B/70B (Ollama) | Usable. Use *Default* function calling; may need 2–3 rounds to fix warnings. |
 | 7B/8B/14B distills | Financial decks work (no model skill needed). Technical decks will be weak: broken JSON, thin content. |

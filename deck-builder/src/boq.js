@@ -52,30 +52,52 @@ async function readBOQ(buffer) {
     const titles = rows.slice(0, hi).map((r) => r.filter((v) => v != null).map(clean).join(" ")).filter(Boolean);
     const sections = [];
     let declaredTotal = null;
-    for (const r of rows.slice(hi + 1)) {
+    const seenNo = new Set();
+    const missingCols = ["qty", "rate"].filter((k) => col[k] == null);
+    if (missingCols.length) problems.push(`sheet "${ws.name}": no ${missingCols.map((k) => (k === "qty" ? "الكمية" : "سعر الوحدة")).join(" / ")} column found in the header row — items on this sheet cannot be priced`);
+    rows.slice(hi + 1).forEach((r, k) => {
+      const rowNo = k + hi + 2;
       const no = r[col.no] != null ? clean(r[col.no]) : "";
       const desc = r[col.desc] != null ? clean(r[col.desc]) : "";
+      const unit = col.unit != null && r[col.unit] != null ? clean(r[col.unit]) : "";
       const qty = toNum(r[col.qty]), rate = toNum(r[col.rate]), amount = toNum(r[col.amount]);
-      if (/^sec$/i.test(no) || (desc && qty == null && rate == null && amount == null)) {
+      const isTotal = /إجمالي|اجمالي|المجموع|مجموع|total/i.test(`${no} ${desc}`) && qty == null && rate == null; // merged total rows repeat their label across columns
+      if (/^sec$/i.test(no) || (desc && !unit && qty == null && rate == null && amount == null && !isTotal)) {
         sections.push({ title: (desc || no).replace(/^\d+\s*[.\-)]\s*/, ""), items: [] });
-        continue;
+        return;
       }
       if (qty != null && rate != null) {
         if (!sections.length) sections.push({ title: ws.name, items: [] });
         const amt = amount != null ? amount : qty * rate;
-        if (Math.abs(qty * rate - amt) > 0.05) problems.push(`sheet "${ws.name}" item ${no}: quantity × rate (${(qty * rate).toFixed(2)}) ≠ total (${amt.toFixed(2)})`);
-        sections[sections.length - 1].items.push({ no, desc, unit: r[col.unit] != null ? clean(r[col.unit]) : "", qty, rate, amount: Math.round(amt * 100) / 100 });
-        continue;
+        const ref = `sheet "${ws.name}" row ${rowNo}${no ? ` (item ${no})` : ""}`;
+        if (Math.abs(qty * rate - amt) > 0.05) problems.push(`${ref}: quantity × rate (${(qty * rate).toFixed(2)}) ≠ total (${amt.toFixed(2)}) — the deck uses the total from the file`);
+        if (qty <= 0 || rate <= 0) problems.push(`${ref}: ${qty <= 0 ? "quantity" : "rate"} is ${qty <= 0 ? qty : rate}`);
+        if (!unit) problems.push(`${ref}: no unit`);
+        if (no && seenNo.has(no)) problems.push(`${ref}: item number ${no} appears more than once`);
+        if (no) seenNo.add(no);
+        sections[sections.length - 1].items.push({ no, desc, unit, qty, rate, amount: Math.round(amt * 100) / 100, row: rowNo });
+        return;
       }
-      if (amount != null) declaredTotal = amount; // a totals row
-    }
+      if ((isTotal || (!desc && qty == null && rate == null)) && amount != null) { declaredTotal = amount; return; } // a totals row
+      if (desc && (unit || qty != null || rate != null || amount != null)) {
+        problems.push(`sheet "${ws.name}" row ${rowNo}${no ? ` (item ${no})` : ""}: "${desc.slice(0, 50)}" has no ${qty == null ? "quantity" : "rate"} — NOT included in the totals`);
+      }
+    });
     const used = sections.filter((s) => s.items.length);
     used.forEach((s) => { s.total = Math.round(s.items.reduce((a, i) => a + i.amount, 0) * 100) / 100; });
     const total = Math.round(used.reduce((a, s) => a + s.total, 0) * 100) / 100;
     if (declaredTotal != null && Math.abs(declaredTotal - total) > 0.05) problems.push(`sheet "${ws.name}": sheet total ${declaredTotal.toFixed(2)} ≠ sum of items ${total.toFixed(2)}`);
-    if (used.length) parts.push({ sheet: ws.name, title: titles[0] || ws.name, subtitle: titles[1] || "", sections: used, total });
+    if (used.length) parts.push({ sheet: ws.name, title: titles[0] || ws.name, subtitle: titles[1] || "", sections: used, total, declared_total: declaredTotal });
+    else problems.push(`sheet "${ws.name}": header row found but no priced items (rows need a quantity and a unit rate)`);
   });
-  return { parts, problems };
+  if (!parts.length) {
+    const e = new Error(`No priced items found. Sheets in the file: ${wb.worksheets.map((w) => `"${w.name}"`).join(", ")}. ${problems.join(" ")} `
+      + "A BOQ sheet needs a header row with الوحدة (unit), الكمية (quantity), سعر الوحدة (rate) and الإجمالي (total), then one row per item.");
+    e.status = 422;
+    throw e;
+  }
+  const items = parts.reduce((a, p) => a + p.sections.reduce((b, s) => b + s.items.length, 0), 0);
+  return { parts, problems, stats: { sheets: wb.worksheets.length, parts: parts.length, items, total: Math.round(parts.reduce((a, p) => a + p.total, 0) * 100) / 100 } };
 }
 
 // ---------- Saudi riyal amount in Arabic words ----------

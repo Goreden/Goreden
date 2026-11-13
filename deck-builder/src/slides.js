@@ -46,37 +46,69 @@ async function divider(d, s, ctx) {
 async function cards(d, s, ctx) {
   const sl = d.contentSlide(ctx.section, s.kicker, s.title);
   const cs = (s.cards || []).slice(0, 3);
-  if ((s.cards || []).length > 3) d.warn("a cards slide holds at most 3 cards");
-  const boxes = d.grid(cs.length, cs.length);
+  if ((s.cards || []).length > 3) d.warn("a cards slide holds at most 3 cards — the rest were not drawn; split them across slides");
+  const area = d.subtitleLine(sl, s.subtitle);
+  const boxes = d.grid(cs.length, cs.length, { y0: area.y0, h: area.h });
   for (let i = 0; i < cs.length; i++) await d.card(sl, Object.assign({}, boxes[i], cs[i]));
   return sl;
 }
 
-// Dark hero panel (a big number or statement) beside 1–2 cards or 2–4 tiles.
+// Decode a data-URI photo; fit(w, h) returns it cropped to that box (inches) at ~150 dpi, as pptxgenjs data.
+async function photoData(d, uri) {
+  if (/^media:/.test(String(uri))) uri = d.mediaData[uri] ? "data:" + d.mediaData[uri] : "";
+  const m = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(String(uri));
+  if (!m) { d.warn("image must be a media:... reference from list_chat_photos (or a data:image URI) — photo skipped"); return null; }
+  const sharp = require("sharp");
+  const buf = Buffer.from(m[2], "base64");
+  return {
+    fit: async (w, h, mode = "cover") => {
+      const out = await sharp(buf).rotate().resize(Math.round(w * 150), Math.round(h * 150), mode === "cover" ? { fit: "cover", position: "attention" } : { fit: "contain", background: "#151515" })
+        .jpeg({ quality: 88 }).toBuffer();
+      return "image/jpeg;base64," + out.toString("base64");
+    },
+  };
+}
+
+// Dark hero panel (a big number or statement) beside 1–2 cards or 2–4 tiles. Optional panel.image shows a photo.
 async function hero(d, s, ctx) {
   const { T, TF, COL, M, R, CONTENT_Y, CONTENT_H } = d;
   const sl = d.contentSlide(ctx.section, s.kicker, s.title);
+  const area = d.subtitleLine(sl, s.subtitle);
   const p = s.panel || {};
+  const photo = p.image ? await photoData(d, p.image) : null;
+  const BAND_Y = 4.25; // photo panels: text sits in the band below this line
+  const Y = photo
+    ? { label: 4.38, value: 4.72, valueH: 0.85, valueSize: 46, unit: 5.6, text: 6.05, textH: 0.5 }
+    : { label: 2.95, value: 3.4, valueH: 1.15, valueSize: 60, unit: 4.6, text: 5.2, textH: 1.2 };
   const pw = 4.3, px = s.panel_side === "right" ? R - pw : M;
-  d.darkPanel(sl, px, CONTENT_Y, pw, CONTENT_H);
-  await d.iconCircle(sl, p.icon, px + pw - 0.95, 2.0, 0.6, { bg: COL.dark2 });
-  if (p.label) TF(sl, p.label, { x: px + 0.35, y: 2.95, w: pw - 0.7, h: 0.4, bold: true, color: COL.gold }, { size: 14, min: 11, label: "panel label" });
+  if (photo) {
+    // Photo fills the panel (cropped to fit); a dark band at the bottom keeps the figure readable.
+    const img = await photo.fit(pw, CONTENT_H);
+    sl.addImage({ data: img, x: px, y: CONTENT_Y, w: pw, h: CONTENT_H, altText: p.alt || s.title || "" });
+    sl.addShape("rect", { x: px, y: BAND_Y, w: pw, h: CONTENT_Y + CONTENT_H - BAND_Y, fill: { color: d.HEX.ink, transparency: 12 }, line: { type: "none" } });
+    sl.addShape("rect", { x: px, y: BAND_Y, w: pw, h: 0.05, fill: { color: d.HEX.gold }, line: { type: "none" } });
+  } else {
+    d.darkPanel(sl, px, CONTENT_Y, pw, CONTENT_H);
+    await d.iconCircle(sl, p.icon, px + pw - 0.95, 2.0, 0.6, { bg: COL.dark2 });
+  }
+  if (p.label) TF(sl, p.label, { x: px + 0.35, y: Y.label, w: pw - 0.7, h: 0.4, bold: true, color: COL.gold }, { size: 14, min: 11, label: "panel label" });
   if (p.value) {
     const isNum = /^[\d.,%+\- ]+$/.test(p.value);
-    TF(sl, p.value, { x: px + 0.35, y: 3.4, w: pw - 0.7, h: 1.15, bold: true, color: COL.paper, rtlMode: !isNum, valign: "middle" }, { size: isNum ? 60 : 30, min: 22, label: "panel value", lineMult: 1.1 });
+    TF(sl, p.value, { x: px + 0.35, y: Y.value, w: pw - 0.7, h: Y.valueH, bold: true, color: COL.paper, rtlMode: !isNum, valign: "middle" }, { size: isNum ? Y.valueSize : 30, min: 22, label: "panel value", lineMult: 1.1 });
   }
-  if (p.unit) T(sl, p.unit, { x: px + 0.35, y: 4.6, w: pw - 0.7, h: 0.45, fontSize: 18, color: COL.stone });
-  if (p.text) TF(sl, p.text, { x: px + 0.35, y: 5.2, w: pw - 0.7, h: 1.2, color: COL.stone, lineSpacingMultiple: 1.15 }, { size: 14, min: 12, label: "panel text" });
+  if (p.unit) T(sl, p.unit, { x: px + 0.35, y: Y.unit, w: pw - 0.7, h: 0.45, fontSize: 18, color: COL.stone });
+  if (p.text) TF(sl, p.text, { x: px + 0.35, y: Y.text, w: pw - 0.7, h: Y.textH, color: COL.stone, lineSpacingMultiple: 1.15 }, { size: 14, min: 12, label: "panel text" });
   const x0 = s.panel_side === "right" ? M : M + pw + 0.35, w = R - M - pw - 0.35;
   if (s.tiles && s.tiles.length) {
     const n = Math.min(4, s.tiles.length);
-    const boxes = d.grid(n, n === 3 ? 3 : 2, { x0, w });
+    const boxes = d.grid(n, n === 3 ? 3 : 2, { x0, w, y0: area.y0, h: area.h });
     for (let i = 0; i < n; i++) await tile(d, sl, boxes[i], s.tiles[i]);
   } else {
     const cs = (s.cards || []).slice(0, 2);
-    const boxes = d.grid(cs.length, cs.length, { x0, w });
+    const boxes = d.grid(cs.length, cs.length, { x0, w, y0: area.y0, h: area.h });
     for (let i = 0; i < cs.length; i++) await d.card(sl, Object.assign({}, boxes[i], cs[i]));
   }
+  if ((s.cards || []).length > 2) d.warn("a hero slide holds at most 2 cards — the rest were not drawn; split them across slides");
   return sl;
 }
 
@@ -87,7 +119,7 @@ async function tile(d, sl, { x, y, w, h }, t) {
   if (t.number) T(sl, t.number, { x: x + 0.3, y: y + 0.3, w: 1.2, h: 0.6, fontSize: 26, bold: true, color: COL.gold, valign: "middle", align: "left", rtlMode: false });
   const headY = y + Math.min(1.1, h * 0.4);
   TF(sl, t.heading || "", { x: x + 0.3, y: headY, w: w - 0.6, h: 0.45, bold: true }, { size: 18, min: 14, label: "tile heading" });
-  if (t.text) TF(sl, t.text, { x: x + 0.3, y: headY + 0.5, w: w - 0.6, h: y + h - (headY + 0.5) - 0.2, color: COL.grey, lineSpacingMultiple: 1.1 }, { size: 15, min: 12, label: "tile text" });
+  if (t.text) TF(sl, t.text, { x: x + 0.3, y: headY + 0.5, w: w - 0.6, h: y + h - (headY + 0.5) - 0.2, color: COL.grey, lineSpacingMultiple: 1.1 }, { size: 15, min: 11, label: "tile text" });
 }
 
 // 2–8 tiles (icon + heading + short text), optional subtitle line.
@@ -176,20 +208,20 @@ async function table(d, s, ctx) {
   const sum = weights.reduce((a, b) => a + b, 0);
   const colW = weights.map((x) => (x / sum) * tw).reverse();
   const numeric = cols.map((_, ci) => rows.every((r) => /^[\d.,%\- ]*$/.test(String(r[ci] ?? ""))));
-  const avail = (s.note ? 4.55 : 5.0) - 0.5;
+  const noteH = s.note ? Math.min(1.0, 0.16 + d.estLines(s.note, tw, 11) * 0.26) : 0;
+  const avail = (s.note ? 4.95 - noteH : 5.0) - 0.5;
   const fontSize = rows.length > 9 ? 11 : rows.length > 6 ? 12 : 13;
   const rh = Math.min(0.85, avail / Math.max(1, rows.length));
-  rows.forEach((r, ri) => r.forEach((c, ci) => {
-    if (d.estLines(String(c ?? ""), (weights[ci] / sum) * tw - 0.3, fontSize) * fontSize * 1.15 / 72 > rh) d.warn(`table cell row ${ri + 1} col ${ci + 1} is too long — shorten it or split the table`);
-  }));
-  if (rows.length * 0.3 > avail) d.warn(`table has ${rows.length} rows; split it across slides (max ~${Math.floor(avail / 0.3)})`);
+
   const hd = cols.map((c, ci) => ({ text: String(c), options: { bold: true, color: COL.paper, fill: { color: COL.ink }, fontSize: fontSize + 0.5, align: numeric[ci] ? "center" : "right", rtlMode: true, valign: "middle" } })).reverse();
   const body = rows.map((r, ri) => cols.map((_, ci) => {
     const fill = { color: ri % 2 ? HEX.mist : HEX.paper };
     return { text: String(r[ci] ?? ""), options: { fill, fontSize, color: ci === 0 ? COL.ink : COL.grey, bold: ci === 0 || (numeric[ci] && s.bold_numbers !== false), align: numeric[ci] ? "center" : "right", rtlMode: !numeric[ci], valign: "middle" } };
   }).reverse());
   sl.addTable([hd, ...body], { x: M, y: d.CONTENT_Y, w: tw, colW, rowH: [0.5, ...rows.map(() => rh)], border: { type: "solid", color: HEX.line, pt: 0.75 }, margin: [0, 0.15, 0, 0.15] });
-  if (s.note) d.TF(sl, s.note, { x: M, y: 6.3, w: tw, h: 0.4, color: COL.grey }, { size: 11, min: 10, label: "table note" });
+  d.tables.push({ key: d.bumpBox(), slide: d.slideNo, y: d.CONTENT_Y, bottom: s.note ? 6.62 - noteH : 6.7, colW, padX: 0.3, rowH: [0.5, ...rows.map(() => rh)],
+    rows: [hd, ...body].map((r) => r.map((c) => ({ text: c.text, size: c.options.fontSize, bold: !!c.options.bold }))) });
+  if (s.note) d.TF(sl, s.note, { x: M, y: 6.68 - noteH, w: tw, h: noteH, color: COL.grey }, { size: 11, min: 9.5, label: "table note" });
   return sl;
 }
 
@@ -278,5 +310,25 @@ async function closing(d, s, ctx) {
   return sl;
 }
 
-const RENDERERS = { cover, agenda, divider, cards, hero, tiles, stats, process: processSlide, table, timeline, org, closing };
+// A picture: full-bleed (an original slide kept as it was) or framed under a title.
+async function picture(d, s, ctx) {
+  const { M, R, W, H, CONTENT_Y, CONTENT_H } = d;
+  const ph = s.image ? await photoData(d, s.image) : null;
+  if (s.full) {
+    const sl = d.darkSlide(ctx.section);
+    if (ph) sl.addImage({ data: await ph.fit(W, H, "contain"), x: 0, y: 0, w: W, h: H, altText: s.title || "" });
+    else d.warn("picture slide has no image");
+    return sl;
+  }
+  const sl = d.contentSlide(ctx.section, s.kicker, s.title);
+  const area = d.subtitleLine(sl, s.subtitle);
+  if (ph) {
+    const capH = s.caption ? 0.45 : 0;
+    sl.addImage({ data: await ph.fit(R - M, area.h - capH), x: M, y: area.y0, w: R - M, h: area.h - capH, altText: s.caption || s.title || "" });
+    if (s.caption) d.TF(sl, s.caption, { x: M, y: area.y0 + area.h - 0.38, w: R - M, h: 0.38, color: d.COL.grey }, { size: 12, min: 10, label: "caption" });
+  } else d.warn("picture slide has no image");
+  return sl;
+}
+
+const RENDERERS = { cover, agenda, divider, cards, hero, tiles, stats, process: processSlide, table, timeline, org, closing, picture };
 module.exports = { RENDERERS, fmtNum };

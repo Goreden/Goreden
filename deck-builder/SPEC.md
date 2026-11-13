@@ -23,7 +23,7 @@ The service handles all design: brand colours, fonts, right-to-left Arabic, layo
 3. Card `items` use the pattern `"Label: text"`. The label is bold. Keep 2–5 items per card, each under ~110 characters.
 4. Never invent numbers, names, clients or dates. Use only what the user gave you. If something is missing, ask or leave it out.
 5. Vary slide types. Do not put two `cards` slides in a row more than twice; use `hero`, `tiles`, `stats`, `process` or `table` in between.
-6. After building, read `warnings`. Each warning names a slide and the text that does not fit. Shorten that text and build again. Repeat until there are no warnings (at most 3 rounds).
+6. After building, read `warnings`. Text that is too long is split onto a «(تابع)» slide by the server automatically; a warning means something still does not fit (for example a title over one line). Fix exactly what it names (shorter title, or split the slide) without dropping facts, at most 3 rounds.
 7. Icons are Font Awesome 6 names (`FaBuilding`, `FaHelmetSafety`, …). A list of good ones is at the end.
 
 ## Slide types
@@ -115,7 +115,36 @@ Columns are in reading order: the first column is the rightmost.
   "contacts": { "phone": "05...", "email": "...", "address": "...", "website": "..." } }
 ```
 
+### `picture` (a photo under a title, or an original slide kept as it was)
+```json
+{ "type": "picture", "kicker": "...", "title": "صور الموقع", "image": "media:3f2a…jpg", "caption": "optional line under the photo" }
+```
+`"full": true` shows the image over the whole slide (used for original slides that could not be converted).
+
+### Photos
+Photos come from `list_chat_photos` as `media:…` references. Use them as `"panel": { "image": "media:…", "label": "...", "value": "...", "unit": "..." }` on a `hero` slide (the photo fills the panel; the figure sits in a band at its bottom) or on a `picture` slide. Never invent a reference.
+
+### Subtitles
+`cards`, `hero`, `tiles` and `process` accept `"subtitle"`: one line under the title.
+
 Any slide may have `"notes": "..."` for speaker notes (internal remarks go here, never on the slide).
+
+## Editing an existing deck (import_deck → get_slides → edit_deck)
+
+Slide numbers are those of the deck before the edit. Each edit returns a new `deck_id`; use the latest one next time.
+
+| op | example | use |
+|---|---|---|
+| `replace` | `{"op":"replace","slide":7,"rewrite":true,"with":{…slide…}}` | new layout or wording for one slide; `"with":[{…},{…}]` turns it into two slides |
+| `update` | `{"op":"update","slide":7,"set":{"title":"…","cards.0.items.2":"…"}}` | change single fields; a value of `null` removes an array item |
+| `insert_after` | `{"op":"insert_after","slide":7,"slides":[{…}]}` | add slides (0 = at the start) |
+| `move` | `{"op":"move","slide":9,"after":3}` | reorder |
+| `delete` | `{"op":"delete","slide":9}` | only when the user asked to remove that slide |
+
+- Keep `"source"` as it is when replacing a slide (the server does this for you).
+- `"rewrite": true` marks slides the user asked you to rephrase; the check report then lists how much of the old wording remains instead of flagging it as lost.
+- Never shorten or drop content to make it fit: the server measures every text box with real fonts, shrinks text within limits and moves overflow to a «(تابع)» slide automatically.
+- The server posts its own change list and check report in the chat. Read it; if it shows a lost number or line that the user did not ask to remove, fix it with another edit.
 
 ## Good icons
 Company & people: FaBuilding FaCity FaHouse FaUserTie FaPeopleGroup FaHandshake FaIdCard FaAward

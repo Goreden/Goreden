@@ -62,10 +62,37 @@ curl http://localhost:8010/health    # → {"ok":true}
 5. Raise **Context Length** (`num_ctx`) to at least 16384 if you use Ollama; a full deck spec is long.
 6. Save.
 
+### 3b. Photos (optional)
+Add `openwebui/corebuild_photos_filter.py` as a **Function** (filter), set its valves like the tool's,
+attach it to the model (**Filters**) and turn on the model's **Vision** capability. Each photo a user
+attaches is stored in the deck builder and replaced by a `media:` reference before the text reaches
+the model, so text-only models work.
+
 ### 4. Use it
-- *Financial:* upload the BOQ `.xlsx` and write «اعمل لي عرض مالي لمشروع … مقدم إلى …».
-- *Technical:* paste or upload your content and write «اعمل عرض فني بنفس تصميم CoreBuild».
-- Links to the PowerPoint and PDF appear in the chat. Files are kept for `KEEP_DAYS` days.
+- *Financial:* upload the BOQ `.xlsx` and write «اعمل لي عرض مالي لمشروع … مقدم إلى …». You get the deck,
+  a PDF and a priced Excel workbook with formulas; problems in the spreadsheet are listed in the chat.
+- *Existing deck:* upload the `.pptx` and say what to change. The tool imports it slide by slide
+  (`import_deck`: every line, number and schedule bar carried over by code), the model changes only the
+  slides asked for (`edit_deck`), and the server posts its own change list and fact check in the chat.
+- *New technical deck:* paste your content and write «اعمل عرض فني بنفس تصميم CoreBuild».
+- Links appear in the chat. Files are kept for `KEEP_DAYS` days; deck records (for later edits) for a year.
+
+## How mistakes are prevented
+- **Nothing is re-typed.** Uploaded decks are converted by code (`src/pptx_read.js`, `src/convert.js`);
+  decks built here carry their id, so a later upload continues from the saved slides exactly.
+- **Fact check on every version** (`src/facts.js`): numbers per slide, every line, schedule bars, slide count.
+- **Measured text fit** (`src/measure.js`): every text box is measured with the fonts LibreOffice uses;
+  overflow is shrunk within limits, then split onto a «(تابع)» slide. Content is never cut.
+- **Excel maths in code** (`src/boq.js`): totals, mismatches, items without a rate, duplicates.
+
+## Operations
+- `ops/regression.sh` — smoke tests plus real documents kept in `regression/` (not in git) with
+  `regression/expected.json`. Run after any change or image update.
+- `ops/healthcheck.sh` — every 10 minutes from cron; ntfy alert when the deck builder, Tika, Open WebUI
+  or the public hostnames break, and when they recover.
+- Pin Open WebUI, Tika and cloudflared images by digest and keep them out of automatic updaters:
+  a Tika major version change silently broke PowerPoint and Excel reading once
+  (Open WebUI's Tika server version setting must match: `4` for Tika 4.x).
 
 ## What to expect from DeepSeek
 

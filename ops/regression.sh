@@ -10,7 +10,8 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 REG="$HERE/regression"
 C=${CONTAINER:-deck-builder}
 [ -f "$REG/expected.json" ] || { echo "missing $REG/expected.json"; exit 2; }
-docker exec "$C" rm -rf /tmp/reg && docker cp "$REG" "$C":/tmp/reg >/dev/null || exit 2
+trap 'docker exec -u root "$C" rm -rf /tmp/reg /tmp/reg-smoke' EXIT
+docker exec -u root "$C" rm -rf /tmp/reg && docker cp "$REG" "$C":/tmp/reg >/dev/null || exit 2
 
 echo "== smoke tests"
 docker exec -w /app -e MAKE_PDF=false -e API_KEY= -e OUTPUT_DIR=/tmp/reg-smoke "$C" node test/smoke.js 2>&1 | grep -v javaldx | tail -3
